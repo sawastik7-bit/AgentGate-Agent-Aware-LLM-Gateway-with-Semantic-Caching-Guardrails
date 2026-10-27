@@ -4,25 +4,49 @@ import {ChatOpenRouter}   from "@langchain/openrouter";
 import {createAgent} from "langchain";
 import {z} from "zod";
 import "dotenv/config";
+import jwt from "jsonwebtoken";
+
+
+
+// this is the database containing all of the information about the users and their roles with balances.
+const userDatabase={
+    "user_123":{name:"rajesh", role:"tech_supplier", balance:50000},
+    "user_124":{name:"sohan", role:"toy_supplier", balance:50540},
+    "user_125":{name:"manjulika", role:"drink_supplier", balance:50340},
+}
+
+
+const verifyJwt=(token)=>{
+const secret=process.envJWT_SECRET;
+
+try{
+
+        const decoded= jwt.verify(token,secret);
+        if(!decoded){
+        throw new Error("Invalid token");
+    
+        }
+        
+        if(decoded){
+            req.user=decoded;
+        }
+
+}catch(err){
+    throw new Error(err.message);
+}
+
+}
 
 
 
 
-const multiplyTool=tool(async({a,b})=>{
-    return (a*b).toString();
-},{
-    name:"multiply",
-    description:"Multiplies two numbers together. Use this when you need to calculate product",
-    schema:z.object({
-        a:z.number().describe("The first number"),
-        b:z.number().describe("The second number")
-    })
-});
+
 
 
 
 
 async function main(){
+
 
     // initialize the chat model 
 
@@ -43,7 +67,7 @@ async function main(){
     // invoking the llm for the agent 
 
     const response=await  agent.invoke({
- messages:[{role:"user",content:"what is the product of 5 and 4"}],
+ messages:[{role:"user",content:"what is the product of 1 and 4"}],
 
     })
 
