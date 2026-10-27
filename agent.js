@@ -1,5 +1,5 @@
 import {tool} from "@langchain/core/tools";
-
+import express from "express";
 import {ChatOpenRouter}   from "@langchain/openrouter";
 import {createAgent} from "langchain";
 import {z} from "zod";
@@ -7,6 +7,9 @@ import "dotenv/config";
 import jwt from "jsonwebtoken";
 
 
+
+const app=express();  // creating an express http wrapper app
+app.use(express.json()); // for handiling request body and json responses
 
 // this is the database containing all of the information about the users and their roles with balances.
 const userDatabase={
@@ -16,7 +19,7 @@ const userDatabase={
 }
 
 
-const verifyJwt=(token)=>{
+const verifyJwt=(token)=>{   // this is the function to check token verification
 const secret=process.envJWT_SECRET;
 
 try{
@@ -29,6 +32,7 @@ try{
         
         if(decoded){
             req.user=decoded;
+            return true;
         }
 
 }catch(err){
@@ -38,6 +42,14 @@ try{
 }
 
 
+
+app.post("/login",(req,res)=>{   // this is the route for attaching the token to the request header and sending it for the future request  ,
+                                // instead of register we would use the databasse to provide the direct user info for token generation
+
+const userId=req.body.userId; // take out the id from teh body 
+      
+
+})
 
 
 
@@ -81,3 +93,9 @@ try{
 
     console.log(err);
 }
+
+
+
+app.listen(3000,()=>{
+    console.log("Server is running on port 3000");
+})
