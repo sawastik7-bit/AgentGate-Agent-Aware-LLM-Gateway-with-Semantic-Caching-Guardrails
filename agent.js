@@ -15,8 +15,10 @@ const checkGlobalTimestamps=()=>{
 
     const currentTime=Date.now();
 
-     if(requestTimestamps.lengt>MAX_GLOBAL_REQUEST){
-        throw new Error("Global request limit exceeded. Please try again later.");
+     if(requestTimestamps.length>=MAX_GLOBAL_REQUEST){
+        console.log("Global request limit exceeded. Please try again later.");
+        return false;
+
      }
 
      while(requestTimestamps.length > 0 && currentTime - requestTimestamps[0] > WINDOW_SIZE){
@@ -25,6 +27,7 @@ const checkGlobalTimestamps=()=>{
 
      requestTimestamps.push(currentTime); // add the current timestamp
 
+     return true;
 }
 
 // 1. Database
@@ -73,6 +76,12 @@ const createTools = (userContext) => {
 
 // 4. Main Execution Function
 async function runAgent(token, prompt) {
+
+
+    if(!checkGlobalTimestamps()){
+        throw new Error("Global request limit exceeded. Please try again later.");
+    }
+
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         console.log(`Logged in as: ${decoded.name} (${decoded.role})`);
