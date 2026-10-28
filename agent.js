@@ -6,29 +6,28 @@ import { z } from "zod";
 import "dotenv/config";
 
 const JWT_SECRET = process.env.JWT_SECRET || "super_secret_key";
-const MAX_GLOBAL_REQUEST=5; // this is the max request limit for the whole agent 
-const WINDOW_SIZE=15000; // this is the window size in milliseconds 
-const requestTimestamps = [];  // this is to sstore the total timestamp of the user 
+const MAX_GLOBAL_REQUEST = 5; // Max request limit for the whole agent 
+const WINDOW_SIZE = 15000; // Window size in milliseconds 
+const requestTimestamps = []; // Stores timestamps of requests
 
+const checkGlobalTimestamps = () => {
+    const currentTime = Date.now();
 
-const checkGlobalTimestamps=()=>{
+    // 1. Pehle purane timestamps hatao jo window size se bahar ho chuke hain
+    while (requestTimestamps.length > 0 && currentTime - requestTimestamps[0] > WINDOW_SIZE) {
+        requestTimestamps.shift(); // remove the oldest timestamp
+    }
 
-    const currentTime=Date.now();
-
-     if(requestTimestamps.length>=MAX_GLOBAL_REQUEST){
+    // 2. Ab check karo ki limit cross hui ya nahi
+    if (requestTimestamps.length >= MAX_GLOBAL_REQUEST) {
         console.log("Global request limit exceeded. Please try again later.");
         return false;
+    }
 
-     }
-
-     while(requestTimestamps.length > 0 && currentTime - requestTimestamps[0] > WINDOW_SIZE){
-        requestTimestamps.shift(); // remove the oldest timestamp
-     }
-
-     requestTimestamps.push(currentTime); // add the current timestamp
-
-     return true;
-}
+    // 3. Naya timestamp add karo
+    requestTimestamps.push(currentTime);
+    return true;
+};
 
 // 1. Database
 const userDatabase = {
@@ -44,7 +43,7 @@ function login(userId) {
     return jwt.sign({ userId, name: user.name, role: user.role }, JWT_SECRET, { expiresIn: "10m" });
 }
 
-// 3. Tool Factory (Closure magic to bind user context securely)
+// 3. Tool Factory
 const createTools = (userContext) => {
     const userId = userContext.userId;
 
@@ -76,9 +75,7 @@ const createTools = (userContext) => {
 
 // 4. Main Execution Function
 async function runAgent(token, prompt) {
-
-
-    if(!checkGlobalTimestamps()){
+    if (!checkGlobalTimestamps()) {
         throw new Error("Global request limit exceeded. Please try again later.");
     }
 
@@ -102,8 +99,6 @@ async function runAgent(token, prompt) {
         console.log("Agent Answer:");
         console.log(response.messages[response.messages.length - 1].content);
 
-        
-
     } catch (err) {
         console.error("Error:", err.message);
     }
@@ -112,7 +107,16 @@ async function runAgent(token, prompt) {
 // 5. Run it directly
 async function main() {
     const myToken = login("user_123");
-    await runAgent(myToken, "what is my balance and role?");
+    
+    // Testing multiple rapid requests to hit the global limit of 5
+    await runAgent(myToken, "what is my balance?");
+    await runAgent(myToken, "what is my role?");
+    await runAgent(myToken, "what is my balance?");
+    await runAgent(myToken, "what is my role?");
+    await runAgent(myToken, "what is my balance?");
+    
+    // This 6th request will be blocked by the global rate limiter
+    await runAgent(myToken, "what is my role?");
 }
 
 main();
