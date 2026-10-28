@@ -67,7 +67,34 @@ return res.status(200).header("Authorization", `Bearer ${token}`).json({message:
 
 
 
+const createTools=(verifiedToken)=>{
 
+    const userId=verifiedToken.token.userId;  // fetch teh user id from token 
+
+   // now while creating the tool , verify the user present in the database using tool()
+
+
+   return [tool(async(userId)=>{
+      
+    const user=userDatabases[userId];
+
+    if(!user){
+        throw new Error("User not found");
+    }
+    console.log(`User ${user.name} has balance of ${user.balance}`);
+   },{name:"balance",description:"It returns the balance of the user",schema:z.object({})}),
+   tool(async(userId)=>{
+      
+    const user=userDatabases[userId];
+
+    if(!user){
+        throw new Error("User not found");
+    }
+    console.log(`User ${user.name} has role of ${user.role}`);
+   },{name:"role",description:"It returns the role of the user",schema:z.object({})}),]
+
+
+} 
 
 
 
@@ -89,7 +116,7 @@ async function main(){
 
 
 
-   const tools= CreaeteTools(verifiedToken);
+   const tools= CreateTools(verifiedToken);
     
 
 
