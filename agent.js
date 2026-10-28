@@ -6,6 +6,26 @@ import { z } from "zod";
 import "dotenv/config";
 
 const JWT_SECRET = process.env.JWT_SECRET || "super_secret_key";
+const MAX_GLOBAL_REQUEST=5; // this is the max request limit for the whole agent 
+const WINDOW_SIZE=15000; // this is the window size in milliseconds 
+const requestTimestamps = [];  // this is to sstore the total timestamp of the user 
+
+
+const checkGlobalTimestamps=()=>{
+
+    const currentTime=Date.now();
+
+     if(requestTimestamps.lengt>MAX_GLOBAL_REQUEST){
+        throw new Error("Global request limit exceeded. Please try again later.");
+     }
+
+     while(requestTimestamps.length > 0 && currentTime - requestTimestamps[0] > WINDOW_SIZE){
+        requestTimestamps.shift(); // remove the oldest timestamp
+     }
+
+     requestTimestamps.push(currentTime); // add the current timestamp
+
+}
 
 // 1. Database
 const userDatabase = {
