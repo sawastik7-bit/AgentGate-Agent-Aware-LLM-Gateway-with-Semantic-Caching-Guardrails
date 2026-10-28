@@ -32,22 +32,35 @@ try{
         
         if(decoded){
             req.user=decoded;
-            return true;
+            return {valid:true,token:decoded};
         }
 
 }catch(err){
-    throw new Error(err.message);
+    throw new Error(err.message); 
 }
 
 }
 
-
+ let TOKEN;
 
 app.post("/login",(req,res)=>{   // this is the route for attaching the token to the request header and sending it for the future request  ,
                                 // instead of register we would use the databasse to provide the direct user info for token generation
 
 const userId=req.body.userId; // take out the id from teh body 
-      
+
+// now find the user in the database and generate the token 
+
+
+const foundUser= userDatabase[userId];
+
+if(!foundUser){
+   return res.status(400).json({error:"User not found"});  
+}
+    
+
+const token=jwt.sign({userId,role:foundUser.role},process.env.JWT_SECRET,{expiresIn:"1h"});
+
+return res.status(200).header("Authorization", `Bearer ${token}`).json({message:"Login successful",token});
 
 })
 
@@ -57,7 +70,28 @@ const userId=req.body.userId; // take out the id from teh body
 
 
 
+
+
 async function main(){
+
+
+    if(!TOKEN){
+  console.log("No token found, please login first and get the token");
+  return;
+    }
+
+
+   const verifiedToken=verifyJwt(TOKEN);
+
+   if(!verifiedToken.valid){
+   throw new Error("Invalid token, please login again");
+   }
+
+
+
+   const tools= CreaeteTools(verifiedToken);
+    
+
 
 
     // initialize the chat model 
