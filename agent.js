@@ -6,6 +6,7 @@ import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { z } from "zod";
 import "dotenv/config";
 import "next/dist/build/swc/loaderWorkerPool.js"
+import {EmbeddingGenerator} from "./embeddingsGenerator.js" 
 
 const JWT_SECRET = process.env.JWT_SECRET || "super_secret_key";
 const MAX_GLOBAL_REQUEST = 5; 
@@ -24,16 +25,23 @@ const modelGuardrail = new ChatOpenRouter({
     temperature: 0,
 });
 
-const messagesGuardrail = [
+// this is the message storage section 
+let messagesGuardrail = [
     {
         role: "system", 
         content: "You are a guardrail agent that ensures user inputs and agent outputs do not contain malicious, harmful, or sensitive data leaks. If safe, respond with 'Safe.'. If unsafe, respond with 'Unsafe.' and provide a brief explanation."
     },
 ]; 
 
-const messagesMainAgent=[
+let messagesMainAgent=[
 {role:"system",content:"LYou are an agent whose work is to provide fact based answers to the queries provided by the user without hallucinations"},
 ];
+
+
+let semanticSearchArray=[];
+
+
+// this is the agent setup section 
 
 const guardrailAgent = createReactAgent({
     llm: modelGuardrail,
@@ -130,6 +138,11 @@ async function runAgent(token, prompt) {
         const decoded = jwt.verify(token, JWT_SECRET);
         console.log(`Logged in as: ${decoded.name} (${decoded.role})`);
 
+        const data= await EmbeddingGenerator(prompt);
+        semanticSearchArray.push(data);
+
+
+
         const model = new ChatOpenRouter({
             model: "openai/gpt-4o-mini",
             temperature: 0,
@@ -159,6 +172,9 @@ async function runAgent(token, prompt) {
 
         console.log("Agent Answer:");
         console.log(agentAnswer);
+
+        console.log("\n--- Semantic Search Array ---");
+        console.log(semanticSearchArray);
 
     } catch (err) {
         console.error("Error:", err.message);
