@@ -5,14 +5,14 @@ import { tool } from "@langchain/core/tools";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { z } from "zod";
 import "dotenv/config";
-import "next/dist/build/swc/loaderWorkerPool.js"
-import {EmbeddingGenerator} from "./embeddingsGenerator.js" 
+import "next/dist/build/swc/loaderWorkerPool.js";
+import { EmbeddingGenerator } from "./embeddingsGenerator.js"; 
+import { cosineSimilarity } from "./cosineSimilarity.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "super_secret_key";
 const MAX_GLOBAL_REQUEST = 5; 
 const WINDOW_SIZE = 15000; 
 const requestTimestamps = []; 
-
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -25,7 +25,6 @@ const modelGuardrail = new ChatOpenRouter({
     temperature: 0,
 });
 
-// this is the message storage section 
 let messagesGuardrail = [
     {
         role: "system", 
@@ -33,15 +32,11 @@ let messagesGuardrail = [
     },
 ]; 
 
-let messagesMainAgent=[
-{role:"system",content:"LYou are an agent whose work is to provide fact based answers to the queries provided by the user without hallucinations"},
+let messagesMainAgent = [
+    { role: "system", content: "You are an agent whose work is to provide fact based answers to the queries provided by the user without hallucinations" },
 ];
 
-
-let semanticSearchArray=[];
-
-
-// this is the agent setup section 
+let semanticSearchArray = [];
 
 const guardrailAgent = createReactAgent({
     llm: modelGuardrail,
@@ -52,7 +47,7 @@ const guardrailAgent = createReactAgent({
 const checkGlobalTimestamps = () => {
     const currentTime = Date.now();
 
-    while (requestTimestamps.length > 0 && currentTime - requestTimestamps[0] > WINDOW_SIZE) {
+    while (requestTimestamps.length > 0 && (currentTime - requestTimestamps[0] > WINDOW_SIZE)) {
         requestTimestamps.shift(); 
     }
 
@@ -108,15 +103,12 @@ const createTools = (userContext) => {
     ];
 };
 
-
-  
 // 5. Main Execution Function with Guardrails
 async function runAgent(token, prompt) {
-
     messagesMainAgent.push({
-        role:"user",
-        content:prompt
-    })
+        role: "user",
+        content: prompt
+    });
 
     if (!checkGlobalTimestamps()) {
         throw new Error("Global request limit exceeded. Please try again later.");
@@ -138,11 +130,40 @@ async function runAgent(token, prompt) {
         const decoded = jwt.verify(token, JWT_SECRET);
         console.log(`Logged in as: ${decoded.name} (${decoded.role})`);
 
-        const data= await EmbeddingGenerator(prompt);
-        semanticSearchArray.push(data);
+        // --- SEMANTIC CACHE LOOKUP ---
+        const data = await EmbeddingGenerator(prompt);
+        let semanticRankingArray = [];
+        let isCacheHit = false;
 
+        if (semanticSearchArray.length > 0) {
+            const rankingData = semanticSearchArray.map((item) => {
+                let similarityScore = cosineSimilarity(data.embeddings, item.embeddings);
+                return { 
+                    currentQuery: data.query, 
+                    comparedQuery: item.query, 
+                    similarityScore: similarityScore, 
+                    answer: item.answer 
+                };
+            });
 
+            semanticRankingArray = rankingData.sort((a, b) => b.similarityScore - a.similarityScore);
+            console.log("Top Similarity Score:", semanticRankingArray[0].similarityScore.toFixed(4));
+        
+            if (semanticRankingArray[0].similarityScore > 0.8) {
+                console.log("\nCACHE HIT - Using Cached Answer");
+                console.log("Semantic Search Result Found:");
+                console.log(`Matched Query: "${semanticRankingArray[0].comparedQuery}"`);
+                console.log("Answer:", semanticRankingArray[0].answer);
+                console.log("--------------------------------------------------");
+                return; // Exit function, bypassing LLM completely
+            } else {
+                console.log("CACHE MISS - No similar query found in cache. Proceeding to ask the agent.");
+            }
+        } else {
+            console.log("CACHE MISS - Cache is empty. Proceeding to ask the agent.");
+        }
 
+        // --- AGENT EXECUTION ---
         const model = new ChatOpenRouter({
             model: "openai/gpt-4o-mini",
             temperature: 0,
@@ -153,7 +174,7 @@ async function runAgent(token, prompt) {
 
         console.log(`Asking Agent: "${prompt}"\n`);
         const response = await agent.invoke({
-            messages:messagesMainAgent,
+            messages: messagesMainAgent,
         });
 
         const agentAnswer = response.messages[response.messages.length - 1].content;
@@ -172,9 +193,14 @@ async function runAgent(token, prompt) {
 
         console.log("Agent Answer:");
         console.log(agentAnswer);
+        console.log("--------------------------------------------------");
 
-        console.log("\n--- Semantic Search Array ---");
-        console.log(semanticSearchArray);
+        // --- SAVE TO CACHE ---
+        semanticSearchArray.push({
+            query: prompt,
+            answer: agentAnswer,
+            embeddings: data.embeddings
+        });
 
     } catch (err) {
         console.error("Error:", err.message);
@@ -182,27 +208,27 @@ async function runAgent(token, prompt) {
 }
 
 // 6. Run it directly
-let token= login("user_123");
+let token = login("user_123");
 
-
-
-async function startTerminal(){
-    let exitingFlag=false;
-while(!exitingFlag){
-
-    const ans=await rl.question("Ask me anything ? ");
-
-    if(ans.trim()=="/exit"){
-        exitingFlag=true;
-        rl.close();
-        return;
-    }
+async function startTerminal() {
+    let exitingFlag = false;
+    console.log("=== Agent Gateway CLI Started ===");
     
-         await runAgent(token,ans);
+    while (!exitingFlag) {
+        const ans = await rl.question("Ask me anything ? ");
 
+        if (ans.trim() === "/exit") {
+            console.log("Exiting terminal. Goodbye!");
+            exitingFlag = true;
+            rl.close();
+            return;
+        }
+        
+        if (ans.trim() !== "") {
+            await runAgent(token, ans);
+        }
+    }
+    rl.close();
 }
-rl.close();
-}
-
 
 startTerminal();
