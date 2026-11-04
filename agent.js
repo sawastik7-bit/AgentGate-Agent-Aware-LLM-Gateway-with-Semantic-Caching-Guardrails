@@ -149,7 +149,7 @@ async function runAgent(token, prompt) {
             semanticRankingArray = rankingData.sort((a, b) => b.similarityScore - a.similarityScore);
             console.log("Top Similarity Score:", semanticRankingArray[0].similarityScore.toFixed(4));
         
-            if (semanticRankingArray[0].similarityScore > 0.8) {
+            if (semanticRankingArray[0].similarityScore > 0.6) {
                 console.log("\nCACHE HIT - Using Cached Answer");
                 console.log("Semantic Search Result Found:");
                 console.log(`Matched Query: "${semanticRankingArray[0].comparedQuery}"`);
