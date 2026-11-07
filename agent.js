@@ -19,6 +19,19 @@ const rl = readline.createInterface({
     output: process.stdout
 });
 
+
+
+
+// first create a map for 2 models with max limit  for main tasks while the gpt 4o will act as a guardrail agent 
+
+const modelMap=new Map([
+    ["nvidia/nemotron-3-ultra-550b-a55b:free", 2],
+    
+    ["nvidia/nemotron-3.5-super-vl:free", 1]
+]);
+
+
+
 // 1. Guardrail Agent Setup
 const modelGuardrail = new ChatOpenRouter({
     model: "nvidia/nemotron-3-ultra-550b-a55b:free",
