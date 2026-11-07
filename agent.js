@@ -25,9 +25,8 @@ const rl = readline.createInterface({
 // first create a map for 2 models with max limit  for main tasks while the gpt 4o will act as a guardrail agent 
 
 const modelMap=new Map([
-    ["nvidia/nemotron-3-ultra-550b-a55b:free", 2],
-    
-    ["nvidia/nemotron-3.5-super-vl:free", 1]
+    ["nvidia/nemotron-3-ultra-550b-a55b:free", 5],
+    ["nvidia/nemotron-3.5-super-vl:free", 5]
 ]);
 
 
@@ -146,7 +145,7 @@ async function runAgent(token, prompt) {
         // --- SEMANTIC CACHE LOOKUP ---
         const data = await EmbeddingGenerator(prompt);
         let semanticRankingArray = [];
-        let isCacheHit = false;
+        
 
         if (semanticSearchArray.length > 0) {
             const rankingData = semanticSearchArray.map((item) => {
@@ -177,8 +176,23 @@ async function runAgent(token, prompt) {
         }
 
         // --- AGENT EXECUTION ---
+        let modelFromMap;
+        for (let i=0; i<modelMap.size; i++){
+            const [modelName, maxLimit] = Array.from(modelMap.entries())[i];
+            if(maxLimit >0){
+                modelFromMap=modelName;
+
+                console.log(`Using model: ${modelFromMap} with remaining limit: ${maxLimit}`);
+                modelMap.set(modelName, maxLimit-1);
+                break;
+            }else{
+                continue;
+
+
+            }
+        }
         const model = new ChatOpenRouter({
-            model: "openai/gpt-4o-mini",
+            model: modelFromMap,
             temperature: 0,
         });
 
