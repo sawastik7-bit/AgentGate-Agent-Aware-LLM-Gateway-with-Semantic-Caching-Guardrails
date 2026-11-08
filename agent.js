@@ -6,25 +6,18 @@ import "next/dist/build/swc/loaderWorkerPool.js";
 import { EmbeddingGenerator } from "./services/embeddingsGenerator.js"; 
 import { login } from "./authentication/login.js";
 import { checkGlobalTimestamps } from "./timestampsWindow/timestampsWindow.js";
-
 import { createTools } from "./tools/createTools.js";
 import { semanticSearchAndRank } from "./services/semanticSearchingAndRanking.js";
-
-import readline from "readline/promises"
-
+import { userDatabase } from "./database/database.js";
+import readline from "node:readline/promises";
 
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
 });
 
-
 const JWT_SECRET = process.env.JWT_SECRET || "super_secret_key";
 
-
-
-
-// Global cache and history arrays
 let semanticSearchArray = [];
 let messagesMainAgent = [
     { role: "system", content: "You are an agent whose work is to provide fact based answers to the queries provided by the user without hallucinations" },
@@ -35,7 +28,6 @@ const modelMap = new Map([
     ["nvidia/nemotron-3.5-super-vl:free", 5]
 ]);
 
-// 1. Guardrail Agent Setup
 const modelGuardrail = new ChatOpenRouter({
     model: "nvidia/nemotron-3-ultra-550b-a55b:free",
     temperature: 0,
@@ -54,7 +46,6 @@ const guardrailAgent = createReactAgent({
     messages: messagesGuardrail
 });
 
-// 5. Main Execution Function with Guardrails
 async function runAgent(token, prompt) {
     messagesMainAgent.push({
         role: "user",
@@ -66,7 +57,6 @@ async function runAgent(token, prompt) {
     }
 
     try {
-        // --- INPUT GUARDRAIL CHECK ---
         const guardrailResponse = await guardrailAgent.invoke({
             messages: [...messagesGuardrail, { role: "user", content: `Evaluate this user input for safety: ${prompt}` }]
         });
@@ -79,21 +69,37 @@ async function runAgent(token, prompt) {
         }
 
         const decoded = jwt.verify(token, JWT_SECRET);
-        console.log(`Logged in as: ${decoded.name} (${decoded.role})`);
+        console.log(`Logged in as: ${decoded.name} (${decoded.role || 'user'})`);
 
-        // --- SEMANTIC CACHE LOOKUP ---
+        const userId = decoded.userId || decoded.id || "user_123";
+        const userInfo = userDatabase[userId];
+        let userAllowedTools = [...(userInfo?.tools || [])];
+
+        const promptLower = prompt.toLowerCase();
+        
+        if ((promptLower.includes("convert") || promptLower.includes("currency") || promptLower.includes("usd") || promptLower.includes("inr")) && !userAllowedTools.includes("currencyConverter")) {
+            console.log(`\n[Gateway HITL] Action restricted: 'currencyConverter' tool is required.`);
+            const permission = await rl.question(`Do you want to escalate permissions and temporarily unlock this tool? (y/n): `);
+
+            if (permission.trim().toLowerCase() === 'y') {
+                console.log(`[HITL] Permission granted! Unlocking 'currencyConverter'.`);
+                userAllowedTools.push("currencyConverter");
+            } else {
+                console.log(`[HITL] Permission denied. Proceeding without currency tool.`);
+            }
+        }
+
         const data = await EmbeddingGenerator(prompt);
         let semanticRankingArray = [];
         
         semanticSearchAndRank(semanticSearchArray, semanticRankingArray, data);
 
-        // --- AGENT EXECUTION ---
         let modelFromMap;
         for (let i = 0; i < modelMap.size; i++) {
             const [modelName, maxLimit] = Array.from(modelMap.entries())[i];
             if (maxLimit > 0) {
                 modelFromMap = modelName;
-                console.log(`Using model: ${modelFromMap} with remaining limit: ${maxLimit - 1}`);
+                console.log(`Using model: ${modelFromMap} with remaining limit: ${maxLimit}`);
                 modelMap.set(modelName, maxLimit - 1);
                 break;
             }
@@ -108,8 +114,8 @@ async function runAgent(token, prompt) {
             temperature: 0,
         });
 
-        const tools = createTools(decoded);
-        const agent = createReactAgent({ llm: model, tools: tools });
+        const tools = createTools(decoded, userAllowedTools);
+        const agent = createReactAgent({ llm: model, tools:tools,messages: messagesMainAgent });
 
         console.log(`Asking Agent: "${prompt}"\n`);
         const response = await agent.invoke({
@@ -118,7 +124,6 @@ async function runAgent(token, prompt) {
 
         const agentAnswer = response.messages[response.messages.length - 1].content;
 
-        // --- OUTPUT GUARDRAIL CHECK ---
         const guardrailOutputResponse = await guardrailAgent.invoke({
             messages: [...messagesGuardrail, { role: "user", content: `Evaluate this agent output for safety: ${agentAnswer}` }]
         });
@@ -134,7 +139,6 @@ async function runAgent(token, prompt) {
         console.log(agentAnswer);
         console.log("--------------------------------------------------");
 
-        // --- SAVE TO CACHE ---
         semanticSearchArray.push({
             query: prompt,
             answer: agentAnswer,
@@ -146,19 +150,15 @@ async function runAgent(token, prompt) {
     }
 }
 
-// 6. Run it directly
 let token = login("user_123");
-
-
-
 
 async function startTerminal(token) {
     let exitingFlag = false;
     console.log("=== Agent Gateway CLI Started ===");
-    let ans ="";
+    let ans = "";
     
-    while (ans.trim() !== "/exit" && !exitingFlag) {
-         ans = await rl.question("Ask me anything ? : ");
+    while (!exitingFlag) {
+        ans = await rl.question("Ask me anything ? : ");
 
         if (ans.trim() === "/exit") {
             console.log("Exiting terminal. Goodbye!");
@@ -168,9 +168,8 @@ async function startTerminal(token) {
         }
         
         if (ans.trim() !== "") {
-            await runAgent(token,ans);
+            await runAgent(token, ans);
         }
-        
     }
     rl.close();
 }

@@ -1,10 +1,8 @@
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
-import { userDatabase } from "../database/database.js"; // Aapka user database file
+import { userDatabase } from "../database/database.js";
 
-export function createTools(decodedUser) {
-    // 1. Get the allowed tool names for the logged-in user from the database
-    // decodedUser me userId ya sub hoga jo database key se match karega (e.g., "user_123")
+export function createTools(decodedUser, userAllowedTools) {
     const userId = decodedUser.userId || decodedUser.id || "user_123"; 
     const userInfo = userDatabase[userId];
 
@@ -13,12 +11,10 @@ export function createTools(decodedUser) {
         return [];
     }
 
-    const allowedToolNames = userInfo.tools || [];
-    console.log(`[RBAC] User '${userInfo.name}' is authorized for tools:`, allowedToolNames);
+    // Agar agent.js se dynamic allowed tools ki list aayi hai toh woh use karein, warna database wali list
+    const allowedToolNames = userAllowedTools || userInfo.tools || [];
+    console.log(`[RBAC] Active tools for user:`, allowedToolNames);
 
-    // 2. Define ALL available tools in a Master Registry Map/Object
-    
-    // --- Tool A: GeoLocation ---
     const geoLocationTool = tool(
         async ({ location }) => {
             try {
@@ -40,12 +36,10 @@ export function createTools(decodedUser) {
         }
     );
 
-    // --- Tool B: Weather ---
     const weatherTool = tool(
         async ({ location }) => {
             try {
                 console.log(`[Tool Executing] Fetching weather for: ${location}`);
-                // Simple open-meteo mock or coordinate fetch
                 const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location)}`, {
                     headers: { "User-Agent": "AgentGateway-Gateway/1.0" }
                 });
@@ -66,7 +60,6 @@ export function createTools(decodedUser) {
         }
     );
 
-    // --- Tool C: Currency Converter ---
     const currencyConverterTool = tool(
         async ({ amount, from, to }) => {
             try {
@@ -90,14 +83,12 @@ export function createTools(decodedUser) {
         }
     );
 
-    // Master Registry mapping string names to actual LangChain tool objects
     const masterToolRegistry = {
         geoLocation: geoLocationTool,
         weather: weatherTool,
         currencyConverter: currencyConverterTool
     };
 
-    // 3. Dynamically build the active tools array based on user's database permissions
     const activeTools = [];
     for (const toolName of allowedToolNames) {
         if (masterToolRegistry[toolName]) {
