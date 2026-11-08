@@ -1,20 +1,17 @@
 import jwt from "jsonwebtoken";
-import readline from "node:readline/promises";
 import { ChatOpenRouter } from "@langchain/openrouter";
-import { tool } from "@langchain/core/tools";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
-import { z } from "zod";
 import "dotenv/config";
 import "next/dist/build/swc/loaderWorkerPool.js";
 import { EmbeddingGenerator } from "./services/embeddingsGenerator.js"; 
-import { cosineSimilarity } from "./services/cosineSimilarity.js";
-import {login} from "./authentication/login.js"
+import { login } from "./authentication/login.js";
+import { checkGlobalTimestamps } from "./timestampsWindow/timestampsWindow.js";
 
-const JWT_SECRET = process.env.JWT_SECRET || "super_secret_key";
-const MAX_GLOBAL_REQUEST =process.env.MAX_GLOBAL_REQUEST ? parseInt(process.env.MAX_GLOBAL_REQUEST) : 5; 
-const WINDOW_SIZE =process.env.WINDOW_SIZE ? parseInt(process.env.WINDOW_SIZE) : 15000; 
+import { createTools } from "./tools/createTools.js";
+import { semanticSearchAndRank } from "./services/semanticSearchingAndRanking.js";
 
-const requestTimestamps = []; 
+import readline from "readline/promises"
+
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -22,16 +19,21 @@ const rl = readline.createInterface({
 });
 
 
+const JWT_SECRET = process.env.JWT_SECRET || "super_secret_key";
 
 
-// first create a map for 2 models with max limit  for main tasks while the gpt 4o will act as a guardrail agent 
 
-const modelMap=new Map([
+
+// Global cache and history arrays
+let semanticSearchArray = [];
+let messagesMainAgent = [
+    { role: "system", content: "You are an agent whose work is to provide fact based answers to the queries provided by the user without hallucinations" },
+];
+
+const modelMap = new Map([
     ["nvidia/nemotron-3-ultra-550b-a55b:free", 5],
     ["nvidia/nemotron-3.5-super-vl:free", 5]
 ]);
-
-
 
 // 1. Guardrail Agent Setup
 const modelGuardrail = new ChatOpenRouter({
@@ -46,72 +48,11 @@ let messagesGuardrail = [
     },
 ]; 
 
-let messagesMainAgent = [
-    { role: "system", content: "You are an agent whose work is to provide fact based answers to the queries provided by the user without hallucinations" },
-];
-
-let semanticSearchArray = [];
-
 const guardrailAgent = createReactAgent({
     llm: modelGuardrail,
     tools: [],
     messages: messagesGuardrail
 });
-
-const checkGlobalTimestamps = () => {
-    const currentTime = Date.now();
-
-    while (requestTimestamps.length > 0 && (currentTime - requestTimestamps[0] > WINDOW_SIZE)) {
-        requestTimestamps.shift(); 
-    }
-
-    if (requestTimestamps.length >= MAX_GLOBAL_REQUEST) {
-        console.log("Global request limit exceeded. Please try again later.");
-        return false;
-    }
-
-    requestTimestamps.push(currentTime);
-    return true;
-};
-
-// 2. Database
-const userDatabase = {
-    "user_123": { name: "rajesh", role: "tech_supplier", balance: 50000 },
-    "user_124": { name: "sohan", role: "toy_supplier", balance: 50540 },
-};
-
-// 3. Simulated Login
-
-
-// 4. Tool Factory
-const createTools = (userContext) => {
-    const userId = userContext.userId;
-
-    return [
-        tool(
-            async () => {
-                const user = userDatabase[userId];
-                return `User ${user.name} has a balance of $${user.balance}`;
-            },
-            {
-                name: "balance",
-                description: "Returns the user's balance",
-                schema: z.object({})
-            }
-        ),
-        tool(
-            async () => {
-                const user = userDatabase[userId];
-                return `User ${user.name} has the role of ${user.role}`;
-            },
-            {
-                name: "role",
-                description: "Returns the user's role",
-                schema: z.object({})
-            }
-        )
-    ];
-};
 
 // 5. Main Execution Function with Guardrails
 async function runAgent(token, prompt) {
@@ -144,55 +85,24 @@ async function runAgent(token, prompt) {
         const data = await EmbeddingGenerator(prompt);
         let semanticRankingArray = [];
         
-
-        if (semanticSearchArray.length > 0) {
-            const rankingData = semanticSearchArray.map((item) => {
-                let similarityScore = cosineSimilarity(data.embeddings, item.embeddings);
-                return { 
-                    currentQuery: data.query, 
-                    comparedQuery: item.query, 
-                    similarityScore: similarityScore, 
-                    answer: item.answer 
-                };
-            });
-
-            semanticRankingArray = rankingData.sort((a, b) => b.similarityScore - a.similarityScore);
-            console.log("Top Similarity Score:", semanticRankingArray[0].similarityScore.toFixed(4));
-        
-            if (semanticRankingArray[0].similarityScore > 0.6) {
-                console.log("\nCACHE HIT - Using Cached Answer");
-                console.log("Semantic Search Result Found:");
-                console.log(`Matched Query: "${semanticRankingArray[0].comparedQuery}"`);
-                console.log("Answer:", semanticRankingArray[0].answer);
-                console.log("--------------------------------------------------");
-                return; // Exit function, bypassing LLM completely
-            } else {
-                console.log("CACHE MISS - No similar query found in cache. Proceeding to ask the agent.");
-            }
-        } else {
-            console.log("CACHE MISS - Cache is empty. Proceeding to ask the agent.");
-        }
+        semanticSearchAndRank(semanticSearchArray, semanticRankingArray, data);
 
         // --- AGENT EXECUTION ---
         let modelFromMap;
-        for (let i=0; i<modelMap.size; i++){
+        for (let i = 0; i < modelMap.size; i++) {
             const [modelName, maxLimit] = Array.from(modelMap.entries())[i];
-            if(maxLimit >0){
-                modelFromMap=modelName;
-
-                console.log(`Using model: ${modelFromMap} with remaining limit: ${maxLimit}`);
-                modelMap.set(modelName, maxLimit-1);
+            if (maxLimit > 0) {
+                modelFromMap = modelName;
+                console.log(`Using model: ${modelFromMap} with remaining limit: ${maxLimit - 1}`);
+                modelMap.set(modelName, maxLimit - 1);
                 break;
-            }else{
-                continue;
-
-
             }
         }
 
         if (!modelFromMap) {
-    throw new Error("All model API quotas in the fallback map have been exhausted.");
-}
+            throw new Error("All model API quotas in the fallback map have been exhausted.");
+        }
+
         const model = new ChatOpenRouter({
             model: modelFromMap,
             temperature: 0,
@@ -239,12 +149,16 @@ async function runAgent(token, prompt) {
 // 6. Run it directly
 let token = login("user_123");
 
-async function startTerminal() {
+
+
+
+async function startTerminal(token) {
     let exitingFlag = false;
     console.log("=== Agent Gateway CLI Started ===");
+    let ans ="";
     
-    while (!exitingFlag) {
-        const ans = await rl.question("Ask me anything ? ");
+    while (ans.trim() !== "/exit" && !exitingFlag) {
+         ans = await rl.question("Ask me anything ? : ");
 
         if (ans.trim() === "/exit") {
             console.log("Exiting terminal. Goodbye!");
@@ -254,11 +168,11 @@ async function startTerminal() {
         }
         
         if (ans.trim() !== "") {
-            await runAgent(token, ans);
+            await runAgent(token,ans);
         }
+        
     }
     rl.close();
 }
 
-startTerminal();
-
+startTerminal(token);
