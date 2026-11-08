@@ -6,12 +6,14 @@ import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { z } from "zod";
 import "dotenv/config";
 import "next/dist/build/swc/loaderWorkerPool.js";
-import { EmbeddingGenerator } from "./embeddingsGenerator.js"; 
-import { cosineSimilarity } from "./cosineSimilarity.js";
+import { EmbeddingGenerator } from "./services/embeddingsGenerator.js"; 
+import { cosineSimilarity } from "./services/cosineSimilarity.js";
+import {login} from "./authentication/login.js"
 
 const JWT_SECRET = process.env.JWT_SECRET || "super_secret_key";
-const MAX_GLOBAL_REQUEST = 5; 
-const WINDOW_SIZE = 15000; 
+const MAX_GLOBAL_REQUEST =process.env.MAX_GLOBAL_REQUEST ? parseInt(process.env.MAX_GLOBAL_REQUEST) : 5; 
+const WINDOW_SIZE =process.env.WINDOW_SIZE ? parseInt(process.env.WINDOW_SIZE) : 15000; 
+
 const requestTimestamps = []; 
 
 const rl = readline.createInterface({
@@ -79,11 +81,7 @@ const userDatabase = {
 };
 
 // 3. Simulated Login
-function login(userId) {
-    const user = userDatabase[userId];
-    if (!user) throw new Error("User not found!");
-    return jwt.sign({ userId, name: user.name, role: user.role }, JWT_SECRET, { expiresIn: "10m" });
-}
+
 
 // 4. Tool Factory
 const createTools = (userContext) => {
@@ -191,6 +189,10 @@ async function runAgent(token, prompt) {
 
             }
         }
+
+        if (!modelFromMap) {
+    throw new Error("All model API quotas in the fallback map have been exhausted.");
+}
         const model = new ChatOpenRouter({
             model: modelFromMap,
             temperature: 0,
@@ -259,3 +261,4 @@ async function startTerminal() {
 }
 
 startTerminal();
+
