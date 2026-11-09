@@ -7,7 +7,7 @@ import { login } from "./authentication/login.js";
 import { checkGlobalTimestamps } from "./timestampsWindow/timestampsWindow.js";
 import { createTools } from "./tools/createTools.js";
 import { semanticSearchAndRank } from "./services/semanticSearchingAndRanking.js";
-import { userDatabase } from "./database/database.js";
+
 import readline from "node:readline/promises";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
@@ -27,8 +27,8 @@ mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/ai-agent-ga
 });
 
 // Authentication setup
-let userRegistered = registerUser({ name: "user_123", email: "user_123@example.com", password: "password123", role: "admin" });
-let token = login(userRegistered.email); // Note: login returns a signed JWT string
+let userRegistered = await registerUser({ name: "user_123", email: "user_123@example.com", password: "password123", role: "admin" });
+let token =  await login(userRegistered.email); // Note: login returns a signed JWT string
 
 // Interface creation 
 const rl = readline.createInterface({
@@ -196,7 +196,7 @@ async function runAgent(token, prompt, sessionId) {
 }
 
 async function startTerminal(token) {
-    const decodedToken = jwt.verify(token, JWT_SECRET);
+    const decodedToken = jwt.verify(token, process.env.JWT_SECRET);
     
     // Create a new session ONCE when the terminal boots up
     const initialSession = await AgentSession.create({

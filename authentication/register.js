@@ -1,8 +1,8 @@
-import User from "../database/userSchema";
+import User from "../database/userSchema.js";
 import bcrypt from "bcrypt";
 
 
-async function registerUser(data){
+export async function registerUser(data){
 
 const {name,email,password,role}=data;
 
@@ -25,3 +25,6 @@ console.log(`User ${name} registered successfully with email ${email}`);
 
 return user;
 }
+
+
+export default registerUser;
