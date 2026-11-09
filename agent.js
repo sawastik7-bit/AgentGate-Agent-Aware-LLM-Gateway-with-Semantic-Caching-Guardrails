@@ -10,6 +10,16 @@ import { createTools } from "./tools/createTools.js";
 import { semanticSearchAndRank } from "./services/semanticSearchingAndRanking.js";
 import { userDatabase } from "./database/database.js";
 import readline from "node:readline/promises";
+import mongoose from "mongoose";
+
+
+
+
+mongoose.connect().then(()=>{
+    console.log("connected to mongoDb");
+}).catch((err)=>{
+    console.log("error connecting to mongoDb",err);
+});
 
 const rl = readline.createInterface({
     input: process.stdin,
