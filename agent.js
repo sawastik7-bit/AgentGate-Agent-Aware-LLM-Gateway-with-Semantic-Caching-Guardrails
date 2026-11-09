@@ -2,7 +2,6 @@ import jwt from "jsonwebtoken";
 import { ChatOpenRouter } from "@langchain/openrouter";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import "dotenv/config";
-import "next/dist/build/swc/loaderWorkerPool.js";
 import { EmbeddingGenerator } from "./services/embeddingsGenerator.js"; 
 import { login } from "./authentication/login.js";
 import { checkGlobalTimestamps } from "./timestampsWindow/timestampsWindow.js";
@@ -11,27 +10,33 @@ import { semanticSearchAndRank } from "./services/semanticSearchingAndRanking.js
 import { userDatabase } from "./database/database.js";
 import readline from "node:readline/promises";
 import mongoose from "mongoose";
+import dotenv from "dotenv";
+import { registerUser } from "./authentication/register.js";
+import { AgentSession } from "./database/agentSessionSchema.js";
+import { ROLE_PERMISSIONS } from "./config/roles.js";
 
+dotenv.config();
 
+const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret_here";
 
-
-mongoose.connect().then(()=>{
-    console.log("connected to mongoDb");
-}).catch((err)=>{
-    console.log("error connecting to mongoDb",err);
+// Connect to MongoDB 
+mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/ai-agent-gateway").then(() => {
+    console.log("Connected to MongoDB");
+}).catch((err) => {
+    console.log("Error connecting to MongoDB", err);
 });
 
+// Authentication setup
+let userRegistered = registerUser({ name: "user_123", email: "user_123@example.com", password: "password123", role: "admin" });
+let token = login(userRegistered.email); // Note: login returns a signed JWT string
+
+// Interface creation 
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
 });
 
-const JWT_SECRET = process.env.JWT_SECRET || "super_secret_key";
-
 let semanticSearchArray = [];
-let messagesMainAgent = [
-    { role: "system", content: "You are an agent whose work is to provide fact based answers to the queries provided by the user without hallucinations" },
-];
 
 const modelMap = new Map([
     ["nvidia/nemotron-3-ultra-550b-a55b:free", 5],
@@ -56,17 +61,13 @@ const guardrailAgent = createReactAgent({
     messages: messagesGuardrail
 });
 
-async function runAgent(token, prompt) {
-    messagesMainAgent.push({
-        role: "user",
-        content: prompt
-    });
-
+async function runAgent(token, prompt, sessionId) {
     if (!checkGlobalTimestamps()) {
         throw new Error("Global request limit exceeded. Please try again later.");
     }
 
     try {
+        // 1. Input Guardrail Check
         const guardrailResponse = await guardrailAgent.invoke({
             messages: [...messagesGuardrail, { role: "user", content: `Evaluate this user input for safety: ${prompt}` }]
         });
@@ -78,12 +79,12 @@ async function runAgent(token, prompt) {
             throw new Error("Input contains malicious or harmful content.");
         }
 
+        // 2. Decode Token & Check Permissions
         const decoded = jwt.verify(token, JWT_SECRET);
         console.log(`Logged in as: ${decoded.name} (${decoded.role || 'user'})`);
 
-        const userId = decoded.userId || decoded.id || "user_123";
-        const userInfo = userDatabase[userId];
-        let userAllowedTools = [...(userInfo?.tools || [])];
+        const userInfo = ROLE_PERMISSIONS[decoded.role] || {};
+        let userAllowedTools = [...(userInfo.tools || [])];
 
         const promptLower = prompt.toLowerCase();
         
@@ -99,14 +100,14 @@ async function runAgent(token, prompt) {
             }
         }
 
+        // 3. Embeddings & Semantic Search
         const data = await EmbeddingGenerator(prompt);
         let semanticRankingArray = [];
-        
         semanticSearchAndRank(semanticSearchArray, semanticRankingArray, data);
 
+        // 4. Model Fallback Map Selection
         let modelFromMap;
-        for (let i = 0; i < modelMap.size; i++) {
-            const [modelName, maxLimit] = Array.from(modelMap.entries())[i];
+        for (let [modelName, maxLimit] of modelMap.entries()) {
             if (maxLimit > 0) {
                 modelFromMap = modelName;
                 console.log(`Using model: ${modelFromMap} with remaining limit: ${maxLimit}`);
@@ -124,16 +125,27 @@ async function runAgent(token, prompt) {
             temperature: 0,
         });
 
+        // 5. Fetch Session History for Context
+        const session = await AgentSession.findById(sessionId);
+        const chatHistory = session ? session.messages.map(m => ({ role: m.role, content: m.content })) : [];
+
+        // Push current user prompt into history array for the agent run
+        chatHistory.push({ role: "user", content: prompt });
+
+        // 6. Run Main Agent
         const tools = createTools(decoded, userAllowedTools);
-        const agent = createReactAgent({ llm: model, tools:tools,messages: messagesMainAgent });
+        const agent = createReactAgent({ llm: model, tools: tools });
 
         console.log(`Asking Agent: "${prompt}"\n`);
-        const response = await agent.invoke({
-            messages: messagesMainAgent,
-        });
+        
+        // Invoke agent with full conversation history and request intermediate steps
+        const result = await agent.invoke({
+            messages: chatHistory,
+        }, { returnIntermediateSteps: true });
 
-        const agentAnswer = response.messages[response.messages.length - 1].content;
+        const agentAnswer = result.messages[result.messages.length - 1].content;
 
+        // 7. Output Guardrail Check
         const guardrailOutputResponse = await guardrailAgent.invoke({
             messages: [...messagesGuardrail, { role: "user", content: `Evaluate this agent output for safety: ${agentAnswer}` }]
         });
@@ -149,6 +161,29 @@ async function runAgent(token, prompt) {
         console.log(agentAnswer);
         console.log("--------------------------------------------------");
 
+        // 8. Save Turn to MongoDB Session
+        session.messages.push({ role: "user", content: prompt, timestamp: new Date() });
+        
+        // If there were tool execution steps, log them cleanly
+        if (result.intermediateSteps && result.intermediateSteps.length > 0) {
+            for (const [action, observation] of result.intermediateSteps) {
+                session.messages.push({
+                    role: "assistant",
+                    content: `Called tool '${action.tool}' with args: ${JSON.stringify(action.toolInput)}`,
+                    timestamp: new Date()
+                });
+                session.messages.push({
+                    role: "tool",
+                    content: typeof observation === "string" ? observation : JSON.stringify(observation),
+                    timestamp: new Date()
+                });
+            }
+        }
+
+        session.messages.push({ role: "assistant", content: agentAnswer, timestamp: new Date() });
+        await session.save();
+        console.log("Session updated and saved to MongoDB.");
+
         semanticSearchArray.push({
             query: prompt,
             answer: agentAnswer,
@@ -160,25 +195,32 @@ async function runAgent(token, prompt) {
     }
 }
 
-let token = login("user_123");
-
 async function startTerminal(token) {
-    let exitingFlag = false;
-    console.log("=== Agent Gateway CLI Started ===");
-    let ans = "";
+    const decodedToken = jwt.verify(token, JWT_SECRET);
     
-    while (!exitingFlag) {
-        ans = await rl.question("Ask me anything ? : ");
+    // Create a new session ONCE when the terminal boots up
+    const initialSession = await AgentSession.create({
+        userId: decodedToken.userId || decodedToken.id || "user_123",
+        title: "Terminal CLI Session",
+        messages: []
+    });
+    
+    const sessionId = initialSession._id;
+    console.log(`[Session Started: ${sessionId}]`);
 
-        if (ans.trim() === "/exit") {
+    let exitingFlag = false;
+    while (!exitingFlag) {
+        let query = await rl.question("Ask me anything ? : ");
+
+        if (query.trim() === "/exit") {
             console.log("Exiting terminal. Goodbye!");
             exitingFlag = true;
             rl.close();
             return;
         }
-        
-        if (ans.trim() !== "") {
-            await runAgent(token, ans);
+
+        if (query.trim() !== "") {
+            await runAgent(token, query, sessionId);
         }
     }
     rl.close();
