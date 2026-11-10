@@ -6,6 +6,9 @@ export async function registerUser(data){
 
 const {name,email,password,role}=data;
 
+
+
+
 console.log(`registering user named ${name}`);
 
 const hashedPass= await bcrypt.hash(password,10);

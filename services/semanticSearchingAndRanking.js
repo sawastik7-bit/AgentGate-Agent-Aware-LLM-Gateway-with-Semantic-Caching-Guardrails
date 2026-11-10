@@ -26,6 +26,8 @@ semanticSearchArray.push(cachedData); // push the cached data into the semanticS
                 };
             });
 
+            let semanticRankingArray=[];
+
             semanticRankingArray = rankingData.sort((a, b) => b.similarityScore - a.similarityScore);
             console.log("Top Similarity Score:", semanticRankingArray[0].similarityScore.toFixed(4));
         
@@ -35,7 +37,9 @@ semanticSearchArray.push(cachedData); // push the cached data into the semanticS
                 console.log(`Matched Query: "${semanticRankingArray[0].comparedQuery}"`);
                 console.log("Answer:", semanticRankingArray[0].answer);
                 console.log("--------------------------------------------------");
-                return; // Exit function, bypassing LLM completely
+                return{
+                    cacheHit:true,
+                }; // Exit function, bypassing LLM completely
             } else {
                 console.log("CACHE MISS - No similar query found in cache. Proceeding to ask the agent.");
             }

@@ -15,6 +15,7 @@ import { registerUser } from "./authentication/register.js";
 import { AgentSession } from "./database/agentSessionSchema.js";
 import { ROLE_PERMISSIONS } from "./config/roles.js";
 import { redisConnection } from "./redisConnection/redisConnection.js";
+import { BaseExampleSelector } from "@langchain/core/example_selectors";
 dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret_here";
@@ -31,8 +32,8 @@ mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/ai-agent-ga
 const client=await redisConnection();
 
 // Authentication setup
-let userRegistered = await registerUser({ name: "user_123", email: "user_123@example.com", password: "password123", role: "admin" });
-let token =  await login(userRegistered.email); // Note: login returns a signed JWT string
+// let userRegistered= await registerUser({ name: "user_123", email: "user_123@example.com", password: "password123", role: "admin" });
+let token =  await login("user_123@example.com"); // Note: login returns a signed JWT string
 
 // Interface creation 
 const rl = readline.createInterface({
@@ -85,10 +86,10 @@ async function runAgent(token, prompt, sessionId) {
 
         // 2. Decode Token & Check Permissions
         const decoded = jwt.verify(token, JWT_SECRET);
-        console.log(`Logged in as: ${decoded.name} (${decoded.role || 'user'})`);
+        console.log(`Logged in : (${decoded.role || 'user'})`);
 
         const userInfo = ROLE_PERMISSIONS[decoded.role] || {};
-        let userAllowedTools = [...(userInfo.tools || [])];
+        let userAllowedTools = [...(userInfo || [])];
 
         const promptLower = prompt.toLowerCase();
         
@@ -107,8 +108,11 @@ async function runAgent(token, prompt, sessionId) {
         // 3. Embeddings & Semantic Search
         const data = await EmbeddingGenerator(prompt);
         
-        semanticSearchAndRank(prompt,data,client);  // sending the prompt , its embeddings and the redis client to the semantic searching
+        let ans=await semanticSearchAndRank(prompt,data,client);  // sending the prompt , its embeddings and the redis client to the semantic searching
  
+        if (ans.cacheHit){
+            return; // exiting the function and agentic pipeline
+        }
         // 4. Model Fallback Map Selection
         let modelFromMap;
         for (let [modelName, maxLimit] of modelMap.entries()) {
@@ -131,13 +135,13 @@ async function runAgent(token, prompt, sessionId) {
 
         // 5. Fetch Session History for Context
         const session = await AgentSession.findById(sessionId);
-        const chatHistory = session ? session.messages.map(m => ({ role: m.role, content: m.content })) : [];
+       const chatHistory = session?.messages ? session.messages.map(m => ({ role: m.role, content: m.content })) : [];
 
         // Push current user prompt into history array for the agent run
         chatHistory.push({ role: "user", content: prompt });
 
         // 6. Run Main Agent
-        const tools = createTools(decoded, userAllowedTools);
+        const tools =await  createTools(decoded, userAllowedTools);
         const agent = createReactAgent({ llm: model, tools: tools });
 
         console.log(`Asking Agent: "${prompt}"\n`);

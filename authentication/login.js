@@ -10,5 +10,5 @@ export async function login(email) {
 
 
     if (!user) throw new Error("User not found!");
-    return jwt.sign({ userId: user._id, name: user.name, role: user.role }, process.env.JWT_SECRET, { expiresIn: "10m" });
+    return jwt.sign({ userId: user._id ,role: user.role }, process.env.JWT_SECRET, { expiresIn: "10m" });
 }
