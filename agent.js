@@ -7,14 +7,14 @@ import { login } from "./authentication/login.js";
 import { checkGlobalTimestamps } from "./timestampsWindow/timestampsWindow.js";
 import { createTools } from "./tools/createTools.js";
 import { semanticSearchAndRank } from "./services/semanticSearchingAndRanking.js";
-
+import { saveToSemanticCache } from "./services/saveToSemanticCache.js";
 import readline from "node:readline/promises";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import { registerUser } from "./authentication/register.js";
 import { AgentSession } from "./database/agentSessionSchema.js";
 import { ROLE_PERMISSIONS } from "./config/roles.js";
-
+import { redisConnection } from "./redisConnection/redisConnection.js";
 dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret_here";
@@ -26,6 +26,10 @@ mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/ai-agent-ga
     console.log("Error connecting to MongoDB", err);
 });
 
+// connect to redis
+
+const client=await redisConnection();
+
 // Authentication setup
 let userRegistered = await registerUser({ name: "user_123", email: "user_123@example.com", password: "password123", role: "admin" });
 let token =  await login(userRegistered.email); // Note: login returns a signed JWT string
@@ -36,7 +40,7 @@ const rl = readline.createInterface({
     output: process.stdout
 });
 
-let semanticSearchArray = [];
+
 
 const modelMap = new Map([
     ["nvidia/nemotron-3-ultra-550b-a55b:free", 5],
@@ -102,9 +106,9 @@ async function runAgent(token, prompt, sessionId) {
 
         // 3. Embeddings & Semantic Search
         const data = await EmbeddingGenerator(prompt);
-        let semanticRankingArray = [];
-        semanticSearchAndRank(semanticSearchArray, semanticRankingArray, data);
-
+        
+        semanticSearchAndRank(prompt,data,client);  // sending the prompt , its embeddings and the redis client to the semantic searching
+ 
         // 4. Model Fallback Map Selection
         let modelFromMap;
         for (let [modelName, maxLimit] of modelMap.entries()) {
@@ -184,11 +188,11 @@ async function runAgent(token, prompt, sessionId) {
         await session.save();
         console.log("Session updated and saved to MongoDB.");
 
-        semanticSearchArray.push({
-            query: prompt,
-            answer: agentAnswer,
-            embeddings: data.embeddings
-        });
+       
+
+        await saveToSemanticCache(prompt, agentAnswer, data.embeddings, client); // Save to Redis cache
+
+        console.log("--------------------------------------------------");
 
     } catch (err) {
         console.error("Error:", err.message);
@@ -227,3 +231,5 @@ async function startTerminal(token) {
 }
 
 startTerminal(token);
+
+

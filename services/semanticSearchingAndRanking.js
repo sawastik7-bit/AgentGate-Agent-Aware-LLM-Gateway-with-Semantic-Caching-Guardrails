@@ -1,8 +1,20 @@
 import {cosineSimilarity} from "../services/cosineSimilarity.js"
 
-export const semanticSearchAndRank = (semanticSearchArray,semanticRankingArray,data) =>{
+export const semanticSearchAndRank = async (prompt,data,client) =>{
 
     
+    const keys = await client.keys('semanticCache:*'); // fetch all keys that start with 'semanticCache:'
+
+    let semanticSearchArray = [];
+
+    for (const key of keys){
+
+        const cachedData= JSON.parse(await client.get(key)); // retrieve and parse the cached data 
+
+semanticSearchArray.push(cachedData); // push the cached data into the semanticSearchArray
+
+    }
+
         if (semanticSearchArray.length > 0) {
             const rankingData = semanticSearchArray.map((item) => {
                 let similarityScore = cosineSimilarity(data.embeddings, item.embeddings);
