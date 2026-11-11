@@ -21,7 +21,9 @@ dotenv.config();
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret_here";
 
 // Connect to MongoDB 
-mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/ai-agent-gateway").then(() => {
+mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/ai-agent-gateway",{
+    dbName:"agentGateDB"
+}).then(() => {
     console.log("Connected to MongoDB");
 }).catch((err) => {
     console.log("Error connecting to MongoDB", err);
@@ -32,7 +34,7 @@ mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/ai-agent-ga
 const client=await redisConnection();
 
 // Authentication setup
-// let userRegistered= await registerUser({ name: "user_123", email: "user_123@example.com", password: "password123", role: "admin" });
+let userRegistered= await registerUser({ name: "user_123", email: "user_123@example.com", password: "password123", role: "admin" });
 let token =  await login("user_123@example.com"); // Note: login returns a signed JWT string
 
 // Interface creation 
