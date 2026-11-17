@@ -1,12 +1,13 @@
 
 
 
-export const saveToSemanticCache = async (prompt, agentFinalAnswer, embeddings, client) => {
+export const saveToSemanticCache = async (role,prompt, agentFinalAnswer, embeddings, client) => {
 
 
     // Example of saving on cache miss
 const cacheKey = `semanticCache:${Date.now()}`;
 const cachePayload = JSON.stringify({
+    role:role,
     query: prompt,
     answer: agentFinalAnswer,
     embeddings: embeddings // Make sure this matches the property name you use in ranking
