@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  agent-gateway:
+    build: .
+    container_name: agent-gate-app
+    restart: always
+    environment:
+      - PORT=3000
+      - MONGO_URI=${MONGO_URI}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - REDIS_URL=redis://redis-cache:6379
+    depends_on:
+      - redis-cache
+    stdin_open: true
+    tty: true
+
+  redis-cache:
+    image: redis:alpine
+    container_name: agent-gate-redis
+    restart: always
+    ports:
+      - "6379:6379"

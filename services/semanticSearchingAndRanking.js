@@ -1,10 +1,13 @@
 import {cosineSimilarity} from "../services/cosineSimilarity.js"
 
-export const semanticSearchAndRank = async (prompt,data,client) =>{
+export const semanticSearchAndRank = async (role,prompt,data,client) =>{
 
     
-    const keys = await client.keys('semanticCache:*'); // fetch all keys that start with 'semanticCache:'
+    let keys = await client.keys('semanticCache:*'); // fetch all keys that start with 'semanticCache:'
 
+    //now filterring keys on the basis of the role 
+
+     keys=keys.filter(u=>u.role===role);
     let semanticSearchArray = [];
 
     for (const key of keys){
@@ -15,6 +18,7 @@ semanticSearchArray.push(cachedData); // push the cached data into the semanticS
 
     }
 
+    
         if (semanticSearchArray.length > 0) {
             const rankingData = semanticSearchArray.map((item) => {
                 let similarityScore = cosineSimilarity(data.embeddings, item.embeddings);

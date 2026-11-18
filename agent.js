@@ -110,7 +110,7 @@ async function runAgent(token, prompt, sessionId) {
         // 3. Embeddings & Semantic Search
         const data = await EmbeddingGenerator(prompt);
         
-        let ans=await semanticSearchAndRank(prompt,data,client);  // sending the prompt , its embeddings and the redis client to the semantic searching
+        let ans=await semanticSearchAndRank(decoded.role || 'user',prompt,data,client);  // sending the prompt , its embeddings and the redis client to the semantic searching
  
         if (ans.cacheHit){
             return; // exiting the function and agentic pipeline
@@ -196,7 +196,7 @@ async function runAgent(token, prompt, sessionId) {
 
        
 
-        await saveToSemanticCache(prompt, agentAnswer, data.embeddings, client); // Save to Redis cache
+        await saveToSemanticCache(decoded.role || 'user',prompt, agentAnswer, data.embeddings, client); // Save to Redis cache
 
         console.log("--------------------------------------------------");
 
